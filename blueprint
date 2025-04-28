@@ -1,0 +1,92 @@
+blueprint:
+  name: EV Charging Notification (Auto Updating)
+  description: |
+    Sticky notification showing EV Charging Power (kW), Battery %, Estimated Finish Time.
+    When charging finishes, updates to show Fully Charged and Estimated Range (miles).
+    Auto-converts Watts to kW and Range km to miles.
+  domain: automation
+  input:
+    charger_connection_status:
+      name: Charger Connection Status
+      selector:
+        entity:
+          domain: sensor
+    charging_power:
+      name: Charging Power (Watts)
+      selector:
+        entity:
+          domain: sensor
+    battery_level:
+      name: Battery Charge Level (%)
+      selector:
+        entity:
+          domain: sensor
+    estimated_finish_time:
+      name: Estimated Fully Charged Time
+      selector:
+        entity:
+          domain: sensor
+    range_km:
+      name: Estimated Range (km)
+      selector:
+        entity:
+          domain: sensor
+
+trigger:
+  - platform: state
+    entity_id:
+      - !input charger_connection_status
+      - !input charging_power
+      - !input battery_level
+      - !input estimated_finish_time
+      - !input range_km
+    for:
+      seconds: 30
+  - platform: time_pattern
+    minutes: "/2"  # Update every 2 minutes for safety
+
+condition:
+  - condition: state
+    entity_id: !input charger_connection_status
+    state: "Connected"
+
+variables:
+  charging_power_kw: >
+    {% set power = states(!input charging_power) | float(0) %}
+    {{ (power / 1000) | round(1) }}
+  battery_percent: >
+    {{ states(!input battery_level) | float(0) | round(0) }}
+  estimated_finish: >
+    {{ states(!input estimated_finish_time) }}
+  range_miles: >
+    {% set range_km = states(!input range_km) | float(0) %}
+    {{ (range_km * 0.621371) | round(0) }}
+
+action:
+  - choose:
+      - conditions:
+          - condition: numeric_state
+            entity_id: !input charging_power
+            above: 100  # Watts, so 100W+ means still charging
+        sequence:
+          - service: persistent_notification.create
+            data:
+              title: >
+                Charging with {{ charging_power_kw }}kW at {{ battery_percent }}%
+              message: >
+                Estimated to finish at {{ estimated_finish }}
+              notification_id: car_charging_status
+      - conditions:
+          - condition: numeric_state
+            entity_id: !input charging_power
+            below: 100  # Charging finished
+        sequence:
+          - service: persistent_notification.create
+            data:
+              title: >
+                Fully Charged with {{ battery_percent }}%
+              message: >
+                Estimated available range: {{ range_miles }} miles
+              notification_id: car_charging_status
+
+mode: single
