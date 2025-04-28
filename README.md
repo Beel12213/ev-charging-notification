@@ -9,7 +9,7 @@ Automatically receive **live updates** on your EV charging status via:
 
 ---
 
-[![Import Blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?url=https://github.com/Beel12213/ev-charging-notification/blob/main/blueprint.yaml)
+[![Import Blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?url=https://github.com/Beel12213/ev-charging-notification/blob/main/blueprint)
 
 ---
 
