@@ -1,64 +1,83 @@
 blueprint:
-  name: EV Charging Notification (Full Auto, Mobile Push, TTS, Dynamic Icons)
+  name: EV Charging Notification (Mobile, TTS, Dynamic Icons, Full Auto)
   description: >
-    Send automatic EV charging notifications.
-    - Mobile push notifications
-    - Optional TTS announcements
-    - Dynamic icons ⚡ ✅
-    - Miles / KM toggle
-    - Auto-clear on unplug
+    Automatic updating notification about your EV's charging status.
+    • Pushes updates to selected mobile devices  
+    • Optional TTS announcement on selected speakers  
+    • Dynamic icons (⚡ while charging, ✅ when fully charged)  
+    • Converts Watts→kW and km→miles/km based on preference  
+    • Auto-clears sticky notification when the charger is unplugged
   domain: automation
+
   input:
     charger_connection_status:
       name: Charger Connection Status Sensor
-      description: Select the sensor showing whether the charger is connected.
+      description: Sensor that shows if the EV is plugged in (“Connected” vs “Disconnected”).
       selector:
         entity:
           domain: sensor
+
     charging_power:
       name: Charging Power Sensor (Watts)
-      description: Select the sensor showing current charging power in Watts.
+      description: Sensor that reports current charging power in Watts.
       selector:
         entity:
           domain: sensor
+
     battery_level:
       name: Battery Charge Level Sensor (%)
-      description: Select the sensor showing current battery percentage.
+      description: Sensor that reports the current battery percentage.
       selector:
         entity:
           domain: sensor
+
     estimated_finish_time:
       name: Estimated Finish Time Sensor
-      description: Select the sensor showing estimated fully charged time.
+      description: Sensor that shows when charging will complete.
       selector:
         entity:
           domain: sensor
+
     range_km:
       name: Estimated Range Sensor (Kilometers)
-      description: Select the sensor showing estimated driving range.
+      description: Sensor that reports estimated remaining range in km.
       selector:
         entity:
           domain: sensor
+
     notify_devices:
-      name: Devices to Notify (Mobile)
-      description: Select mobile devices to receive push notifications (via mobile_app).
+      name: Mobile Devices to Notify
+      description: >
+        Choose one or more Home Assistant Mobile App devices to receive push notifications.
       default: []
       selector:
         device:
           filter:
             - integration: mobile_app
           multiple: true
+
+    tts_service:
+      name: TTS Service (Optional)
+      description: >
+        Pick the TTS service you want to use (e.g. tts.google_translate_say, tts.amazon_polly).
+      default: ''
+      selector:
+        service:
+          domain: tts
+
     tts_media_players:
       name: TTS Speakers (Optional)
-      description: Select media players for TTS announcements (optional).
+      description: >
+        Choose which media_player entities will play the TTS announcement.
       default: []
       selector:
         entity:
           domain: media_player
           multiple: true
+
     range_units:
       name: Preferred Distance Units
-      description: Miles or Kilometers for Range display.
+      description: Display range in miles or kilometers.
       default: miles
       selector:
         select:
@@ -77,34 +96,34 @@ trigger:
     for:
       seconds: 30
   - platform: time_pattern
-    minutes: "/2"
+    minutes: '/2'
 
 variables:
   charging_power_kw: >
-    {% set power = states(inputs.charging_power) | float(0) %}
-    {{ (power / 1000) | round(1) }}
+    {% set p = states(inputs.charging_power)|float(0) %}
+    {{ (p/1000)|round(1) }}
   battery_percent: >
-    {{ states(inputs.battery_level) | float(0) | round(0) }}
+    {{ states(inputs.battery_level)|float(0)|round(0) }}
   estimated_finish: >
     {{ states(inputs.estimated_finish_time) }}
-  range_km_value: >
-    {{ states(inputs.range_km) | float(0) }}
+  raw_range_km: >
+    {{ states(inputs.range_km)|float(0) }}
   range_value: >
     {% if inputs.range_units == 'miles' %}
-      {{ (range_km_value * 0.621371) | round(0) }}
+      {{ (raw_range_km * 0.621371)|round(0) }}
     {% else %}
-      {{ range_km_value | round(0) }}
+      {{ raw_range_km|round(0) }}
     {% endif %}
   range_unit_label: >
-    {% if inputs.range_units == 'miles' %}
-      miles
-    {% else %}
-      km
-    {% endif %}
+    {{ 'miles' if inputs.range_units == 'miles' else 'km' }}
   notify_services: >
-    {{ expand(inputs.notify_devices) | map(attribute='entity_id') | select('search', '^notify\.') | list }}
+    {{ expand(inputs.notify_devices)
+       | map(attribute='entity_id')
+       | select('search','^notify\\.mobile_app_')
+       | list }}
   is_charging: >
-    {{ states(inputs.charger_connection_status) == "Connected" and states(inputs.charging_power) | float(0) > 100 }}
+    {{ states(inputs.charger_connection_status)=='Connected'
+       and (states(inputs.charging_power)|float(0))>100 }}
 
 condition: []
 
@@ -114,82 +133,93 @@ action:
           - condition: template
             value_template: "{{ is_charging }}"
         sequence:
-          - parallel:
-              - choose:
-                  - conditions:
-                      - condition: template
-                        value_template: "{{ notify_services | length > 0 }}"
-                    sequence:
-                      - repeat:
-                          for_each: "{{ notify_services }}"
-                          sequence:
-                            - service: "{{ repeat.item }}"
-                              data:
-                                title: >
-                                  ⚡ Charging: {{ charging_power_kw }}kW at {{ battery_percent }}%
-                                message: >
-                                  Estimated to finish at {{ estimated_finish }}
-              - choose:
-                  - conditions:
-                      - condition: template
-                        value_template: "{{ inputs.tts_media_players | length > 0 }}"
-                    sequence:
-                      - service: tts.google_translate_say
-                        data:
-                          entity_id: "{{ inputs.tts_media_players }}"
-                          message: >
-                            Charging started. Battery at {{ battery_percent }} percent. Estimated finish at {{ estimated_finish }}.
-                          cache: false
-              - service: persistent_notification.create
-                data:
-                  title: >
-                    ⚡ Charging: {{ charging_power_kw }}kW at {{ battery_percent }}%
-                  message: >
-                    Estimated to finish at {{ estimated_finish }}
-                  notification_id: car_charging_status
+          # 1) Update sticky notification
+          - service: persistent_notification.create
+            data:
+              notification_id: ev_charging_status
+              title: "⚡ Charging: {{ charging_power_kw }}kW at {{ battery_percent }}%"
+              message: "Estimated to finish at {{ estimated_finish }}"
+
+          # 2) Push to mobile devices (if any)
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ notify_services|length>0 }}"
+                sequence:
+                  - repeat:
+                      for_each: "{{ notify_services }}"
+                      sequence:
+                        - service: "{{ repeat.item }}"
+                          data:
+                            title: "⚡ Charging: {{ charging_power_kw }}kW at {{ battery_percent }}%"
+                            message: "Estimated to finish at {{ estimated_finish }}"
+
+          # 3) TTS announcement (if service + speakers selected)
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: >
+                      {{ inputs.tts_service not in ['', none]
+                         and inputs.tts_media_players|length>0 }}
+                sequence:
+                  - service: !input tts_service
+                    data:
+                      entity_id: !input tts_media_players
+                      message: >
+                        Charging started. Battery at {{ battery_percent }}%. 
+                        Estimated finish at {{ estimated_finish }}.
+                      cache: false
+
       - conditions:
           - condition: template
-            value_template: "{{ states(inputs.charger_connection_status) == 'Connected' and states(inputs.charging_power) | float(0) <= 100 }}"
+            value_template: >
+              {{ states(inputs.charger_connection_status)=='Connected'
+                 and (states(inputs.charging_power)|float(0))<=100 }}
         sequence:
-          - parallel:
-              - choose:
-                  - conditions:
-                      - condition: template
-                        value_template: "{{ notify_services | length > 0 }}"
-                    sequence:
-                      - repeat:
-                          for_each: "{{ notify_services }}"
-                          sequence:
-                            - service: "{{ repeat.item }}"
-                              data:
-                                title: >
-                                  ✅ Fully Charged: {{ battery_percent }}%
-                                message: >
-                                  Estimated available range: {{ range_value }} {{ range_unit_label }}
-              - choose:
-                  - conditions:
-                      - condition: template
-                        value_template: "{{ inputs.tts_media_players | length > 0 }}"
-                    sequence:
-                      - service: tts.google_translate_say
-                        data:
-                          entity_id: "{{ inputs.tts_media_players }}"
-                          message: >
-                            Charging complete. Battery at {{ battery_percent }} percent. Estimated range is {{ range_value }} {{ range_unit_label }}.
-                          cache: false
-              - service: persistent_notification.create
-                data:
-                  title: >
-                    ✅ Fully Charged: {{ battery_percent }}%
-                  message: >
-                    Estimated available range: {{ range_value }} {{ range_unit_label }}
-                  notification_id: car_charging_status
+          # 1) Update sticky notification
+          - service: persistent_notification.create
+            data:
+              notification_id: ev_charging_status
+              title: "✅ Fully Charged: {{ battery_percent }}%"
+              message: "Estimated available range: {{ range_value }} {{ range_unit_label }}"
+
+          # 2) Push to mobile devices
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ notify_services|length>0 }}"
+                sequence:
+                  - repeat:
+                      for_each: "{{ notify_services }}"
+                      sequence:
+                        - service: "{{ repeat.item }}"
+                          data:
+                            title: "✅ Fully Charged: {{ battery_percent }}%"
+                            message: "Estimated available range: {{ range_value }} {{ range_unit_label }}"
+
+          # 3) TTS announcement
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: >
+                      {{ inputs.tts_service not in ['', none]
+                         and inputs.tts_media_players|length>0 }}
+                sequence:
+                  - service: !input tts_service
+                    data:
+                      entity_id: !input tts_media_players
+                      message: >
+                        Charging complete. Battery at {{ battery_percent }}%. 
+                        Estimated range is {{ range_value }} {{ range_unit_label }}.
+                      cache: false
+
       - conditions:
           - condition: template
-            value_template: "{{ states(inputs.charger_connection_status) != 'Connected' }}"
+            value_template: >
+              {{ states(inputs.charger_connection_status) != 'Connected' }}
         sequence:
           - service: persistent_notification.dismiss
             data:
-              notification_id: car_charging_status
+              notification_id: ev_charging_status
 
 mode: single
