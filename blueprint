@@ -1,62 +1,69 @@
 blueprint:
-  name: EV Charging Notification
+  name: EV Charging Notification (Full Auto, Multi-Device, Dynamic Icons)
   description: >
     Automatic updating notification about your EV charging status.
-    Shows Charging Power (kW), Battery %, Estimated Finish Time while charging.
-    Shows Fully Charged and Estimated Range when done.
-    Converts Watts ➔ kW, and Range ➔ Miles or Kilometers.
-    Supports mobile app notifications or sticky Home Assistant notifications.
-    Adds dynamic icons (⚡ Charging / ✅ Fully Charged).
-    Auto-clears notifications when unplugged.
+    Supports dynamic icons (⚡ while charging, ✅ when fully charged).
+    Converts Watts ➔ kW and Range ➔ Miles/KM.
+    Sends notifications to multiple mobile devices.
+    Auto-clears notification when car is unplugged.
   domain: automation
   input:
     charger_connection_status:
       name: Charger Connection Status Sensor
-      description: Select the sensor showing whether the charger is connected.
+      description: >
+        Select the sensor showing whether the charger is connected.
       selector:
         entity:
           domain: sensor
 
     charging_power:
       name: Charging Power Sensor (Watts)
-      description: Select the sensor that shows current charging power in Watts.
+      description: >
+        Select the sensor that shows current charging power in Watts.
       selector:
         entity:
           domain: sensor
 
     battery_level:
       name: Battery Charge Level Sensor (%)
-      description: Select the sensor showing the current battery percentage.
+      description: >
+        Select the sensor showing the current battery percentage.
       selector:
         entity:
           domain: sensor
 
     estimated_finish_time:
       name: Estimated Finish Time Sensor
-      description: Select the sensor showing the estimated fully charged time.
+      description: >
+        Select the sensor showing the estimated fully charged time.
       selector:
         entity:
           domain: sensor
 
     range_km:
       name: Estimated Range Sensor (Kilometers)
-      description: Select the sensor showing estimated driving range in kilometers.
+      description: >
+        Select the sensor showing estimated driving range in kilometers.
       selector:
         entity:
           domain: sensor
 
     notify_devices:
-      name: Mobile Devices (Optional)
-      description: Select one or more devices to receive notifications. Leave blank to use a Home Assistant sticky notification.
+      name: Devices to Notify
+      description: >
+        Select one or more mobile devices that will receive notifications.
+        Only devices using the Home Assistant Mobile App will appear here.
       default: []
       selector:
-        target:
-          entity:
-            domain: notify
+        device:
+          filter:
+            - integration: mobile_app
+          multiple: true
 
     range_units:
       name: Preferred Distance Units
-      description: Choose if you want the estimated range shown in miles or kilometers.
+      description: >
+        Choose if you want the estimated range shown in miles or kilometers.
       default: miles
       selector:
         select:
@@ -99,8 +106,8 @@ variables:
     {% else %}
       km
     {% endif %}
-  notify_targets: >
-    {{ expand(targets.notify_devices.entity_id) | map(attribute='entity_id') | list }}
+  notify_services: >
+    {{ expand(!input notify_devices) | map(attribute='entity_id') | select('search', '^notify\.') | list }}
   is_charging: >
     {{ states(!input charger_connection_status) == "Connected" and states(!input charging_power) | float(0) > 100 }}
 
@@ -115,15 +122,17 @@ action:
           - choose:
               - conditions:
                   - condition: template
-                    value_template: "{{ notify_targets | length > 0 }}"
+                    value_template: "{{ notify_services | length > 0 }}"
                 sequence:
-                  - service: notify.notify
-                    data:
-                      message: >
-                        Estimated to finish at {{ estimated_finish }}
-                      title: >
-                        ⚡ Charging: {{ charging_power_kw }}kW at {{ battery_percent }}%
-                      target: "{{ notify_targets }}"
+                  - repeat:
+                      for_each: "{{ notify_services }}"
+                      sequence:
+                        - service: "{{ repeat.item }}"
+                          data:
+                            title: >
+                              ⚡ Charging: {{ charging_power_kw }}kW at {{ battery_percent }}%
+                            message: >
+                              Estimated to finish at {{ estimated_finish }}
               - default:
                   - service: persistent_notification.create
                     data:
@@ -140,15 +149,17 @@ action:
           - choose:
               - conditions:
                   - condition: template
-                    value_template: "{{ notify_targets | length > 0 }}"
+                    value_template: "{{ notify_services | length > 0 }}"
                 sequence:
-                  - service: notify.notify
-                    data:
-                      message: >
-                        Estimated available range: {{ range_value }} {{ range_unit_label }}
-                      title: >
-                        ✅ Fully Charged: {{ battery_percent }}%
-                      target: "{{ notify_targets }}"
+                  - repeat:
+                      for_each: "{{ notify_services }}"
+                      sequence:
+                        - service: "{{ repeat.item }}"
+                          data:
+                            title: >
+                              ✅ Fully Charged: {{ battery_percent }}%
+                            message: >
+                              Estimated available range: {{ range_value }} {{ range_unit_label }}
               - default:
                   - service: persistent_notification.create
                     data:
