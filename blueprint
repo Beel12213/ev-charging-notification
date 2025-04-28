@@ -145,15 +145,6 @@ action:
                               ⚡ Charging: {{ charging_power_kw }}kW at {{ battery_percent }}%
                             message: >
                               Estimated to finish at {{ estimated_finish }}
-              - default:
-                  - service: persistent_notification.create
-                    data:
-                      title: >
-                        ⚡ Charging: {{ charging_power_kw }}kW at {{ battery_percent }}%
-                      message: >
-                        Estimated to finish at {{ estimated_finish }}
-                      notification_id: car_charging_status
-
           - choose:
               - conditions:
                   - condition: template
@@ -165,7 +156,7 @@ action:
                       message: >
                         Charging started. Battery at {{ battery_percent }} percent. Estimated finish at {{ estimated_finish }}.
                       cache: false
-
+  - choose:
       - conditions:
           - condition: template
             value_template: >
@@ -185,15 +176,6 @@ action:
                               ✅ Fully Charged: {{ battery_percent }}%
                             message: >
                               Estimated available range: {{ range_value }} {{ range_unit_label }}
-              - default:
-                  - service: persistent_notification.create
-                    data:
-                      title: >
-                        ✅ Fully Charged: {{ battery_percent }}%
-                      message: >
-                        Estimated available range: {{ range_value }} {{ range_unit_label }}
-                      notification_id: car_charging_status
-
           - choose:
               - conditions:
                   - condition: template
@@ -205,7 +187,7 @@ action:
                       message: >
                         Charging complete. Battery at {{ battery_percent }} percent. Estimated range is {{ range_value }} {{ range_unit_label }}.
                       cache: false
-
+  - choose:
       - conditions:
           - condition: template
             value_template: >
