@@ -1,54 +1,44 @@
 blueprint:
-  name: EV Charging Notification (Mobile, TTS, Dynamic Icons, Full Auto)
+  name: EV Charging Notification (Mobile Push + TTS + Auto-Clear)
   description: >
-    Automatic updating notification about your EV's charging status.
-    • Pushes updates to selected mobile devices  
-    • Optional TTS announcement on selected speakers  
-    • Dynamic icons (⚡ while charging, ✅ when fully charged)  
-    • Converts Watts→kW and km→miles/km based on preference  
-    • Auto-clears sticky notification when the charger is unplugged
+    Send automatic updating EV charging notifications with dynamic icons.
+    Mobile push notifications + optional TTS announcements.
   domain: automation
 
   input:
     charger_connection_status:
       name: Charger Connection Status Sensor
-      description: Sensor that shows if the EV is plugged in (“Connected” vs “Disconnected”).
       selector:
         entity:
           domain: sensor
 
     charging_power:
       name: Charging Power Sensor (Watts)
-      description: Sensor that reports current charging power in Watts.
       selector:
         entity:
           domain: sensor
 
     battery_level:
       name: Battery Charge Level Sensor (%)
-      description: Sensor that reports the current battery percentage.
       selector:
         entity:
           domain: sensor
 
     estimated_finish_time:
       name: Estimated Finish Time Sensor
-      description: Sensor that shows when charging will complete.
       selector:
         entity:
           domain: sensor
 
     range_km:
       name: Estimated Range Sensor (Kilometers)
-      description: Sensor that reports estimated remaining range in km.
       selector:
         entity:
           domain: sensor
 
     notify_devices:
       name: Mobile Devices to Notify
-      description: >
-        Choose one or more Home Assistant Mobile App devices to receive push notifications.
+      description: Select one or more mobile devices for push notifications.
       default: []
       selector:
         device:
@@ -56,19 +46,9 @@ blueprint:
             - integration: mobile_app
           multiple: true
 
-    tts_service:
-      name: TTS Service (Optional)
-      description: >
-        Pick the TTS service you want to use (e.g. tts.google_translate_say, tts.amazon_polly).
-      default: ''
-      selector:
-        service:
-          domain: tts
-
     tts_media_players:
       name: TTS Speakers (Optional)
-      description: >
-        Choose which media_player entities will play the TTS announcement.
+      description: Choose media players to announce with TTS.
       default: []
       selector:
         entity:
@@ -77,7 +57,7 @@ blueprint:
 
     range_units:
       name: Preferred Distance Units
-      description: Display range in miles or kilometers.
+      description: Choose between miles or kilometers.
       default: miles
       selector:
         select:
@@ -133,14 +113,12 @@ action:
           - condition: template
             value_template: "{{ is_charging }}"
         sequence:
-          # 1) Update sticky notification
           - service: persistent_notification.create
             data:
               notification_id: ev_charging_status
               title: "⚡ Charging: {{ charging_power_kw }}kW at {{ battery_percent }}%"
               message: "Estimated to finish at {{ estimated_finish }}"
 
-          # 2) Push to mobile devices (if any)
           - choose:
               - conditions:
                   - condition: template
@@ -154,15 +132,12 @@ action:
                             title: "⚡ Charging: {{ charging_power_kw }}kW at {{ battery_percent }}%"
                             message: "Estimated to finish at {{ estimated_finish }}"
 
-          # 3) TTS announcement (if service + speakers selected)
           - choose:
               - conditions:
                   - condition: template
-                    value_template: >
-                      {{ inputs.tts_service not in ['', none]
-                         and inputs.tts_media_players|length>0 }}
+                    value_template: "{{ inputs.tts_media_players|length>0 }}"
                 sequence:
-                  - service: !input tts_service
+                  - service: tts.google_translate_say
                     data:
                       entity_id: !input tts_media_players
                       message: >
@@ -172,18 +147,15 @@ action:
 
       - conditions:
           - condition: template
-            value_template: >
-              {{ states(inputs.charger_connection_status)=='Connected'
-                 and (states(inputs.charging_power)|float(0))<=100 }}
+            value_template: "{{ states(inputs.charger_connection_status)=='Connected'
+                                and (states(inputs.charging_power)|float(0))<=100 }}"
         sequence:
-          # 1) Update sticky notification
           - service: persistent_notification.create
             data:
               notification_id: ev_charging_status
               title: "✅ Fully Charged: {{ battery_percent }}%"
               message: "Estimated available range: {{ range_value }} {{ range_unit_label }}"
 
-          # 2) Push to mobile devices
           - choose:
               - conditions:
                   - condition: template
@@ -197,15 +169,12 @@ action:
                             title: "✅ Fully Charged: {{ battery_percent }}%"
                             message: "Estimated available range: {{ range_value }} {{ range_unit_label }}"
 
-          # 3) TTS announcement
           - choose:
               - conditions:
                   - condition: template
-                    value_template: >
-                      {{ inputs.tts_service not in ['', none]
-                         and inputs.tts_media_players|length>0 }}
+                    value_template: "{{ inputs.tts_media_players|length>0 }}"
                 sequence:
-                  - service: !input tts_service
+                  - service: tts.google_translate_say
                     data:
                       entity_id: !input tts_media_players
                       message: >
@@ -215,8 +184,7 @@ action:
 
       - conditions:
           - condition: template
-            value_template: >
-              {{ states(inputs.charger_connection_status) != 'Connected' }}
+            value_template: "{{ states(inputs.charger_connection_status)!='Connected' }}"
         sequence:
           - service: persistent_notification.dismiss
             data:
