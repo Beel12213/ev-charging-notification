@@ -1,11 +1,12 @@
 blueprint:
-  name: EV Charging Notification (Full Auto, Multi-Device, Dynamic Icons)
+  name: EV Charging Notification (Mobile, TTS, Dynamic Icons, Full Auto)
   description: >
     Automatic updating notification about your EV charging status.
-    Supports dynamic icons (⚡ while charging, ✅ when fully charged).
-    Converts Watts ➔ kW and Range ➔ Miles/KM.
-    Sends notifications to multiple mobile devices.
-    Auto-clears notification when car is unplugged.
+    - Mobile push notifications to multiple phones
+    - Optional TTS announcement to speakers
+    - Dynamic icons (⚡ Charging / ✅ Fully Charged)
+    - Converts Watts ➔ kW and Range ➔ Miles/KM
+    - Auto-clears notifications when charger is unplugged
   domain: automation
   input:
     charger_connection_status:
@@ -19,7 +20,7 @@ blueprint:
     charging_power:
       name: Charging Power Sensor (Watts)
       description: >
-        Select the sensor that shows current charging power in Watts.
+        Select the sensor showing current charging power in Watts.
       selector:
         entity:
           domain: sensor
@@ -35,7 +36,7 @@ blueprint:
     estimated_finish_time:
       name: Estimated Finish Time Sensor
       description: >
-        Select the sensor showing the estimated fully charged time.
+        Select the sensor showing estimated fully charged time.
       selector:
         entity:
           domain: sensor
@@ -49,15 +50,26 @@ blueprint:
           domain: sensor
 
     notify_devices:
-      name: Devices to Notify
+      name: Devices to Notify (Mobile)
       description: >
-        Select one or more mobile devices that will receive notifications.
+        Select one or more mobile devices that will receive push notifications.
         Only devices using the Home Assistant Mobile App will appear here.
       default: []
       selector:
         device:
           filter:
             - integration: mobile_app
+          multiple: true
+
+    tts_media_players:
+      name: TTS Speakers (Optional)
+      description: >
+        Select media players (like Google Nest, Alexa, etc.) to announce status with TTS.
+        Leave empty if you don't want TTS announcements.
+      default: []
+      selector:
+        entity:
+          domain: media_player
           multiple: true
 
     range_units:
@@ -82,34 +94,34 @@ trigger:
     for:
       seconds: 30
   - platform: time_pattern
-    minutes: "/2"  # Update every 2 minutes
+    minutes: "/2"
 
 variables:
   charging_power_kw: >
-    {% set power = states(!input charging_power) | float(0) %}
+    {% set power = states(inputs.charging_power) | float(0) %}
     {{ (power / 1000) | round(1) }}
   battery_percent: >
-    {{ states(!input battery_level) | float(0) | round(0) }}
+    {{ states(inputs.battery_level) | float(0) | round(0) }}
   estimated_finish: >
-    {{ states(!input estimated_finish_time) }}
+    {{ states(inputs.estimated_finish_time) }}
   range_km_value: >
-    {{ states(!input range_km) | float(0) }}
+    {{ states(inputs.range_km) | float(0) }}
   range_value: >
-    {% if iif('miles' == !input range_units, true, false) %}
+    {% if inputs.range_units == 'miles' %}
       {{ (range_km_value * 0.621371) | round(0) }}
     {% else %}
       {{ range_km_value | round(0) }}
     {% endif %}
   range_unit_label: >
-    {% if iif('miles' == !input range_units, true, false) %}
+    {% if inputs.range_units == 'miles' %}
       miles
     {% else %}
       km
     {% endif %}
   notify_services: >
-    {{ expand(!input notify_devices) | map(attribute='entity_id') | select('search', '^notify\.') | list }}
+    {{ expand(inputs.notify_devices) | map(attribute='entity_id') | select('search', '^notify\.') | list }}
   is_charging: >
-    {{ states(!input charger_connection_status) == "Connected" and states(!input charging_power) | float(0) > 100 }}
+    {{ states(inputs.charger_connection_status) == "Connected" and states(inputs.charging_power) | float(0) > 100 }}
 
 condition: []
 
@@ -141,10 +153,23 @@ action:
                       message: >
                         Estimated to finish at {{ estimated_finish }}
                       notification_id: car_charging_status
+
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ inputs.tts_media_players | length > 0 }}"
+                sequence:
+                  - service: tts.google_translate_say
+                    data:
+                      entity_id: "{{ inputs.tts_media_players }}"
+                      message: >
+                        Charging started. Battery at {{ battery_percent }} percent. Estimated finish at {{ estimated_finish }}.
+                      cache: false
+
       - conditions:
           - condition: template
             value_template: >
-              {{ states(!input charger_connection_status) == "Connected" and states(!input charging_power) | float(0) <= 100 }}
+              {{ states(inputs.charger_connection_status) == "Connected" and states(inputs.charging_power) | float(0) <= 100 }}
         sequence:
           - choose:
               - conditions:
@@ -168,10 +193,23 @@ action:
                       message: >
                         Estimated available range: {{ range_value }} {{ range_unit_label }}
                       notification_id: car_charging_status
+
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ inputs.tts_media_players | length > 0 }}"
+                sequence:
+                  - service: tts.google_translate_say
+                    data:
+                      entity_id: "{{ inputs.tts_media_players }}"
+                      message: >
+                        Charging complete. Battery at {{ battery_percent }} percent. Estimated range is {{ range_value }} {{ range_unit_label }}.
+                      cache: false
+
       - conditions:
           - condition: template
             value_template: >
-              {{ states(!input charger_connection_status) != "Connected" }}
+              {{ states(inputs.charger_connection_status) != "Connected" }}
         sequence:
           - service: persistent_notification.dismiss
             data:
