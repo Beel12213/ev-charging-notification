@@ -71,8 +71,19 @@ blueprint:
 
 trigger:
   - platform: state
+    entity_id: !input charger_connection_status
+    to: 'Connected'
+  - platform: state
+    entity_id: !input charger_connection_status
+    to: 'connected'
+  - platform: state
+    entity_id: !input charger_connection_status
+    to: 'on'
+  - platform: state
+    entity_id: !input charger_connection_status
+    to: 'On'
+  - platform: state
     entity_id:
-      - !input charger_connection_status
       - !input charging_power
       - !input battery_level
       - !input estimated_finish_time
@@ -106,8 +117,8 @@ variables:
        | select('search','^notify\\.mobile_app_')
        | list }}
   is_charging: >
-    {{ states(inputs.charger_connection_status)=='Connected'
-       and (states(inputs.charging_power)|float(0))>100 }}
+    {{ states(inputs.charger_connection_status) | lower in ['connected', 'on']
+       and (states(inputs.charging_power) | float(0)) > 100 }}
 
 condition: []
 
